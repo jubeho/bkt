@@ -2,13 +2,15 @@ import std/[tables,strformat,parsecsv,strutils,math]
 
 type
   AccountData* = ref object
-    transactions*: Table[string, Table[string, string]] # key: uid, valkey: csv-colname, valval: value
+    headerRow*: seq[string]
+    transactions*: Table[string, OrderedTable[string, string]] # key: uid, valkey: csv-colname, valval: value
 
 proc openTransactions*(fp: string): AccountData
+proc writeTransactions*(fp: string, ac: AccountData)
 proc importCsvFile*(fp: string, ac: var AccountData)
-proc fetchTransactionsForDestName*(ac: AccountData, name: string): Table[string, Table[string, string]]
-proc calcTransactionsTurnover*(transactions: Table[string, Table[string, string]]): float
-proc calcTransactionsIncome*(transactions: Table[string, Table[string, string]]): float
+proc fetchTransactionsForDestName*(ac: AccountData, name: string): Table[string, OrderedTable[string, string]]
+proc calcTransactionsTurnover*(transactions: Table[string, OrderedTable[string, string]]): float
+proc calcTransactionsIncome*(transactions: Table[string, OrderedTable[string, string]]): float
 
 proc openTransactions*(fp: string): AccountData =
   ## opens and loads the bkt transaction file
@@ -21,6 +23,7 @@ proc importCsvFile*(fp: string, ac: var AccountData) =
   # open users.csv, separator is ;
   csv.open(fp, ';')
   csv.readHeaderRow()
+  ac.headerRow = csv.headers
   while csv.readRow():
     let uid = join(@[
       csv.rowEntry("IBAN Auftragskonto"),
@@ -29,20 +32,38 @@ proc importCsvFile*(fp: string, ac: var AccountData) =
       csv.rowEntry("Betrag"),
       csv.rowEntry("Saldo nach Buchung"),
     ], "|")
-    var tab = initTable[string, string]()
+    var tab = initOrderedTable[string, string]()
     for col in csv.headers:
       tab[col] = csv.rowEntry(col)
       
     ac.transactions[uid] = tab
   csv.close()
 
-proc fetchTransactionsForDestName*(ac: AccountData, name: string): Table[string, Table[string, string]] =
-  result = initTable[string, initTable[string, string]()]()
+proc writeTransactions*(fp: string, ac: AccountData) =
+  let sep = ";"
+  var txt = ""
+  txt.add(join(ac.headerRow, sep))
+  txt.add("\n")
+  
+  for transaction in values(ac.transactions):
+    var row: seq[string] = @[]
+    for val in values(transaction):
+      row.add(val)
+    txt.add(join(row, sep))
+    txt.add("\n")
+  try:
+    writeFile("bkt-account-data.csv", txt)
+  except:
+    echo "somethings failed writing data :("
+      
+
+proc fetchTransactionsForDestName*(ac: AccountData, name: string): Table[string, OrderedTable[string, string]] =
+  result = initTable[string, initOrderedTable[string, string]()]()
   for uid, tran in pairs(ac.transactions):
     if contains(toLowerAscii(tran["Name Zahlungsbeteiligter"]), toLowerAscii(name)):
       result[uid] = tran
 
-proc calcTransactionsTurnover*(transactions: Table[string, Table[string, string]]): float =
+proc calcTransactionsTurnover*(transactions: Table[string, OrderedTable[string, string]]): float =
   result = 0.0
   for transaction in values(transactions):
     var amountString = transaction["Betrag"]
@@ -55,7 +76,7 @@ proc calcTransactionsTurnover*(transactions: Table[string, Table[string, string]
 
   result = round(result, 2)
 
-proc calcTransactionsIncome*(transactions: Table[string, Table[string, string]]): float =
+proc calcTransactionsIncome*(transactions: Table[string, OrderedTable[string, string]]): float =
   result = 0.0
   for transaction in values(transactions):
     var amountString = transaction["Betrag"]
@@ -82,3 +103,4 @@ when isMainModule:
   let income = calcTransactionsIncome(ac.transactions)
   echo income
   
+  writeTransactions("sepp", ac)
