@@ -1,4 +1,4 @@
-import std/[tables,strformat,parsecsv,strutils]
+import std/[tables,strformat,parsecsv,strutils,math]
 
 type
   AccountData* = ref object
@@ -6,7 +6,9 @@ type
 
 proc openTransactions*(fp: string): AccountData
 proc importCsvFile*(fp: string, ac: var AccountData)
-proc transactionsForDestName*(ac: AccountData, name: string): Table[string, Table[string, string]]
+proc fetchTransactionsForDestName*(ac: AccountData, name: string): Table[string, Table[string, string]]
+proc calcTransactionsTurnover*(transactions: Table[string, Table[string, string]]): float
+proc calcTransactionsIncome*(transactions: Table[string, Table[string, string]]): float
 
 proc openTransactions*(fp: string): AccountData =
   ## opens and loads the bkt transaction file
@@ -34,17 +36,49 @@ proc importCsvFile*(fp: string, ac: var AccountData) =
     ac.transactions[uid] = tab
   csv.close()
 
-proc transactionsForDestName*(ac: AccountData, name: string): Table[string, Table[string, string]] =
+proc fetchTransactionsForDestName*(ac: AccountData, name: string): Table[string, Table[string, string]] =
   result = initTable[string, initTable[string, string]()]()
   for uid, tran in pairs(ac.transactions):
     if contains(toLowerAscii(tran["Name Zahlungsbeteiligter"]), toLowerAscii(name)):
       result[uid] = tran
-  
+
+proc calcTransactionsTurnover*(transactions: Table[string, Table[string, string]]): float =
+  result = 0.0
+  for transaction in values(transactions):
+    var amountString = transaction["Betrag"]
+    amountString = replace(amountString, ",", ".")
+    try:
+      var amount = parseFloat(amountString)
+      result = result + amount
+    except ValueError:
+      echo(fmt("could not parse amountString to float: {amountString}"))
+
+  result = round(result, 2)
+
+proc calcTransactionsIncome*(transactions: Table[string, Table[string, string]]): float =
+  result = 0.0
+  for transaction in values(transactions):
+    var amountString = transaction["Betrag"]
+    amountString = replace(amountString, ",", ".")
+    try:
+      var amount = parseFloat(amountString)
+      if amount > 0.00:
+        result = result + amount
+    except ValueError:
+      echo(fmt("could not parse amountString to float: {amountString}"))
+
+  result = round(result, 2)
+      
 when isMainModule:
   var ac = new(AccountData)
   importCsvFile("2.csv", ac)
   echo len(ac.transactions)
 
-  let trans = transactionsForDestName(ac, "amazon")
+  let trans = fetchTransactionsForDestName(ac, "amazon")
   echo len(trans)
+
+  let sum = calcTransactionsTurnover(trans)
+  echo sum
+  let income = calcTransactionsIncome(ac.transactions)
+  echo income
   
