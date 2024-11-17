@@ -1,5 +1,8 @@
 import std/[tables,strformat,parsecsv,strutils,math]
 
+const
+  storagedata = "bkt-account-data.csv"
+
 type
   AccountData* = ref object
     headerRow*: seq[string]
@@ -8,13 +11,14 @@ type
 proc openTransactions*(fp: string): AccountData
 proc writeTransactions*(fp: string, ac: AccountData)
 proc importCsvFile*(fp: string, ac: var AccountData)
-proc fetchTransactionsForDestName*(ac: AccountData, name: string): Table[string, OrderedTable[string, string]]
-proc calcTransactionsTurnover*(transactions: Table[string, OrderedTable[string, string]]): float
-proc calcTransactionsIncome*(transactions: Table[string, OrderedTable[string, string]]): float
+proc fetchTransactionsForDestName*(ac: AccountData, name: string): (Table[string, OrderedTable[string, string]], Table[string, int])
+proc calcTransactionsTurnover*(transactions: Table[string, OrderedTable[string, string]]): (float, Table[string, float])
+proc calcTransactionsIncome*(transactions: Table[string, OrderedTable[string, string]]): (float, Table[string, float])
 
 proc openTransactions*(fp: string): AccountData =
   ## opens and loads the bkt transaction file
-  discard
+  result = new(AccountData)
+  importCsvFile(fp, result)
 
 proc importCsvFile*(fp: string, ac: var AccountData) =
   ## imports the given csv data into ac.transactions
@@ -52,55 +56,87 @@ proc writeTransactions*(fp: string, ac: AccountData) =
     txt.add(join(row, sep))
     txt.add("\n")
   try:
-    writeFile("bkt-account-data.csv", txt)
+    writeFile(fp, txt)
   except:
     echo "somethings failed writing data :("
       
 
-proc fetchTransactionsForDestName*(ac: AccountData, name: string): Table[string, OrderedTable[string, string]] =
-  result = initTable[string, initOrderedTable[string, string]()]()
+proc fetchTransactionsForDestName*(ac: AccountData, name: string): (Table[string, OrderedTable[string, string]], Table[string, int]) =
+  var trans = initTable[string, initOrderedTable[string, string]()]()
+  var names = initTable[string, int]()
+  
   for uid, tran in pairs(ac.transactions):
     if contains(toLowerAscii(tran["Name Zahlungsbeteiligter"]), toLowerAscii(name)):
-      result[uid] = tran
+      if hasKey(names, tran["Name Zahlungsbeteiligter"]):
+        names[tran["Name Zahlungsbeteiligter"]] = names[tran["Name Zahlungsbeteiligter"]] + 1
+      else:
+        names[tran["Name Zahlungsbeteiligter"]] = 1
+      trans[uid] = tran
+  return (trans, names)
 
-proc calcTransactionsTurnover*(transactions: Table[string, OrderedTable[string, string]]): float =
-  result = 0.0
+proc calcTransactionsTurnover*(transactions: Table[string, OrderedTable[string, string]]): (float, Table[string, float]) =
+  var sum = 0.0
+  var names = initTable[string, float]()
   for transaction in values(transactions):
     var amountString = transaction["Betrag"]
+    var name = transaction["Name Zahlungsbeteiligter"]
     amountString = replace(amountString, ",", ".")
     try:
       var amount = parseFloat(amountString)
-      result = result + amount
+      sum = sum + amount
+      if hasKey(names, name):
+        names[name] = names[name] + amount
+      else:
+        names[name] = amount
     except ValueError:
       echo(fmt("could not parse amountString to float: {amountString}"))
 
-  result = round(result, 2)
+  sum = round(sum, 2)
+  for name in keys(names):
+    names[name] = round(names[name], 2)
+  return (sum, names)
 
-proc calcTransactionsIncome*(transactions: Table[string, OrderedTable[string, string]]): float =
-  result = 0.0
+proc calcTransactionsIncome*(transactions: Table[string, OrderedTable[string, string]]): (float, Table[string, float]) =
+  var sum = 0.0
+  var names = initTable[string, float]()
   for transaction in values(transactions):
     var amountString = transaction["Betrag"]
+    var name = transaction["Name Zahlungsbeteiligter"]
     amountString = replace(amountString, ",", ".")
     try:
       var amount = parseFloat(amountString)
       if amount > 0.00:
-        result = result + amount
+        sum = sum + amount
+        if hasKey(names, name):
+          names[name] = names[name] + amount
+        else:
+          names[name] = amount
     except ValueError:
       echo(fmt("could not parse amountString to float: {amountString}"))
 
-  result = round(result, 2)
+  sum = round(sum, 2)
+  for name in keys(names):
+    names[name] = round(names[name], 2)
+  return (sum, names)
       
 when isMainModule:
-  var ac = new(AccountData)
+  var ac = openTransactions(storagedata)
   importCsvFile("2.csv", ac)
   echo len(ac.transactions)
 
-  let trans = fetchTransactionsForDestName(ac, "amazon")
+  let (trans, names) = fetchTransactionsForDestName(ac, "amazon")
   echo len(trans)
+  for name, i in pairs(names):
+    echo "\t", name, ": ", $i
 
-  let sum = calcTransactionsTurnover(trans)
+  let (sum, sumByNames) = calcTransactionsTurnover(trans)
   echo sum
-  let income = calcTransactionsIncome(ac.transactions)
+  # for tran in values(trans):
+  #   echo "\t", tran["
+  for name, val in pairs(sumByNames):
+    echo "\t", name, ": ", $val
+  
+  let (income, incomes) = calcTransactionsIncome(ac.transactions)
   echo income
   
-  writeTransactions("sepp", ac)
+  writeTransactions(storagedata, ac)
