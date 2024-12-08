@@ -3,6 +3,8 @@ import std/[tables,strformat,parsecsv,strutils,math,os]
 const
   storagedata = "bkt-account-data.csv"
 
+  
+  
 type
   AccountData* = ref object
     headerRow*: seq[string]
@@ -18,7 +20,7 @@ proc calcTransactionsIncome*(transactions: Table[string, OrderedTable[string, st
 
 proc getAmount(tran: OrderedTable[string, string]): float
 proc amountStringToFloat(amountString: string): float
-
+proc extractAmznId(tran: OrderedTable[string, string]): string
 
 proc openTransactions*(fp: string): AccountData =
   ## opens and loads the bkt transaction file
@@ -157,6 +159,11 @@ when isMainModule:
 
 proc getAmount(tran: OrderedTable[string, string]): float =
   return amountStringToFloat(tran["Betrag"])
+
+proc extractAmznId(tran: OrderedTable[string, string]): string =
+  result = ""
+  if contains(toLowerAscii(tran["Name Zahlungsbeteiligter"]), "amazon"):
+    
   
 proc amountStringToFloat(amountString: string): float =
   result = 0.00
